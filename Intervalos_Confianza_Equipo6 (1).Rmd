@@ -1,0 +1,144 @@
+---
+title: "Etapa 3 - Intervalos de confianza"
+author: "Equipo 6"
+date: "15 de octubre de 2026"
+output:
+  html_document:
+    toc: false
+    df_print: kable
+---
+
+```{r configuracion, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE,
+                      fig.align = "center", fig.width = 10, fig.height = 5.4,
+                      dpi = 160)
+```
+
+## Datos
+
+```{r cargar-datos}
+archivo <- "DatosEquipo6_Etapa2.csv"
+if (!file.exists(archivo)) {
+  stop("No se encontró 'DatosEquipo6_Etapa2.csv'. Ponlo en la misma carpeta que este Rmd.")
+}
+
+datos <- read.csv(archivo, stringsAsFactors = FALSE,
+                  fileEncoding = "UTF-8", check.names = FALSE)
+
+columnas_necesarias <- c("grupo_edad", "perslec")
+faltantes <- setdiff(columnas_necesarias, names(datos))
+if (length(faltantes) > 0) {
+  stop("Faltan columnas en el CSV: ", paste(faltantes, collapse = ", "))
+}
+
+# Se admiten tanto etiquetas exportadas como códigos originales 1 y 2.
+normalizar <- function(x) trimws(as.character(x))
+edad <- normalizar(datos$grupo_edad)
+lector <- normalizar(datos$perslec)
+
+es_lector <- lector %in% c("Lector", "1")
+es_no_lector <- lector %in% c("No lector", "2")
+if (any(!(es_lector | es_no_lector))) {
+  stop("Hay valores desconocidos en 'perslec'. Revisa cómo está codificada esa columna.")
+}
+
+# Los grupos fueron definidos en la Etapa 2.
+es_joven <- edad %in% c("18-29", "18 a 29", "18–29", "18-29 años", "18 a 29 años")
+es_mayor <- edad %in% c("60+", "60 +", "60 años o más", "60 o más")
+if (!any(es_joven) || !any(es_mayor)) {
+  stop("No se reconocieron los grupos '18-29' y '60+'. Revisa 'grupo_edad' en el CSV.")
+}
+
+n_total <- nrow(datos)
+x_total <- sum(es_lector)
+n_jovenes <- sum(es_joven)
+x_jovenes <- sum(es_lector & es_joven)
+n_mayores <- sum(es_mayor)
+x_mayores <- sum(es_lector & es_mayor)
+
+cat("Total:", n_total, "personas; lectores:", x_total, "\n")
+cat("18-29:", n_jovenes, "personas; lectores:", x_jovenes, "\n")
+cat("60+:", n_mayores, "personas; lectores:", x_mayores, "\n")
+```
+
+
+## Cálculo de los cuatro intervalos de confianza (96 %)
+
+```{r intervalos}
+nivel_confianza <- 0.96
+
+ic_general <- prop.test(x_total, n_total,
+                        conf.level = nivel_confianza, correct = FALSE)
+ic_jovenes <- prop.test(x_jovenes, n_jovenes,
+                        conf.level = nivel_confianza, correct = FALSE)
+ic_mayores <- prop.test(x_mayores, n_mayores,
+                        conf.level = nivel_confianza, correct = FALSE)
+ic_diferencia <- prop.test(c(x_jovenes, x_mayores),
+                           c(n_jovenes, n_mayores),
+                           conf.level = nivel_confianza, correct = FALSE)
+
+estimaciones <- c(as.numeric(ic_general$estimate),
+                  as.numeric(ic_jovenes$estimate),
+                  as.numeric(ic_mayores$estimate))
+lim_inf <- c(ic_general$conf.int[1],
+             ic_jovenes$conf.int[1],
+             ic_mayores$conf.int[1])
+lim_sup <- c(ic_general$conf.int[2],
+             ic_jovenes$conf.int[2],
+             ic_mayores$conf.int[2])
+
+dif_estimada <- as.numeric(ic_diferencia$estimate[1] -
+                           ic_diferencia$estimate[2])
+
+porcentaje <- function(p) sprintf("%.2f %%", 100 * p)
+intervalo_pct <- function(li, ls) {
+  sprintf("[%.2f %%, %.2f %%]", 100 * li, 100 * ls)
+}
+
+tabla_ic <- data.frame(
+  Estimacion = c("Total de personas lectoras",
+                 "Personas lectoras de 18 a 29 años",
+                 "Personas lectoras de 60 años o más",
+                 "Diferencia entre ambos grupos"),
+  `Proporción estimada` = c(vapply(estimaciones, porcentaje, character(1)),
+                            sprintf("%.2f puntos porcentuales", 100 * dif_estimada)),
+  `IC del 96 %` = c(mapply(intervalo_pct, lim_inf, lim_sup),
+                    sprintf("[%.2f, %.2f] puntos porcentuales",
+                            100 * ic_diferencia$conf.int[1],
+                            100 * ic_diferencia$conf.int[2])),
+  check.names = FALSE
+)
+knitr::kable(tabla_ic, caption = "Tabla 2. Intervalos de confianza del 96 % para proporciones de lectura")
+```
+
+
+## Figura 1. Intervalos de confianza del 96 %
+
+```{r figura-intervalos, echo=TRUE, fig.cap="Figura 1. Intervalos de confianza del 96 % para la proporción de personas lectoras en la muestra combinada, el grupo de 18 a 29 años y el grupo de 60 años o más."}
+# Margen izquierdo amplio: evita recortar las etiquetas del eje vertical.
+op <- par(mar = c(5, 15, 4, 2) + 0.1)
+
+etiquetas <- c("Muestra combinada",
+               "Jóvenes (18-29)",
+               "Adultos mayores (60+)")
+pos <- c(3, 2, 1)
+
+plot(estimaciones, pos,
+     xlim = c(0, 1), ylim = c(0.5, 3.5),
+     yaxt = "n", xaxt = "n",
+     xlab = "Proporción de lectores", ylab = "",
+     main = "Intervalos de confianza del 96 %",
+     pch = 19, col = "#2166AC", cex = 1.2)
+
+axis(1, at = seq(0, 1, by = 0.1),
+     labels = paste0(seq(0, 100, by = 10), "%"))
+axis(2, at = pos, labels = etiquetas, las = 1, tick = FALSE, padj = 0.5)
+
+arrows(lim_inf, pos, lim_sup, pos,
+       angle = 90, code = 3, length = 0.08,
+       lwd = 2, col = "#2166AC")
+points(estimaciones, pos, pch = 19, col = "#2166AC", cex = 1.2)
+
+par(op)
+```
+

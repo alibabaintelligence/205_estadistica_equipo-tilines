@@ -1,0 +1,107 @@
+---
+title: "Etapa_3_Hipótesis"
+output: html_document
+date: "2026-10-16"
+---
+
+```{r}
+M23 = read.csv("C:/Users/dg667/OneDrive/Documents/ArchivosR/Datos_molec_2023-1.csv", encoding = "latin1")
+M24 = read.csv("C:/Users/dg667/OneDrive/Documents/ArchivosR/Datos_molec_2024-1.csv", encoding = "latin1")
+Dicc23 = read.csv("C:/Users/dg667/OneDrive/Documents/ArchivosR/Diccionario_molec_2023-1.csv", encoding = "UTF-8")
+Dicc24 = read.csv("C:/Users/dg667/OneDrive/Documents/ArchivosR/Diccionario_molec_2024-1.csv", encoding = "UTF-8")
+```
+
+
+Primera prueba de hipotesis
+```{r}
+datos$lector = ifelse(datos$perslec == "Lector", 1, 0)
+
+
+d = subset(datos, anio_encuesta == 2023 & grupo_edad %in% c("18-29", "60+"))
+d$grupo_edad <- droplevels(d$grupo_edad)
+
+x = tapply(d$lector, d$grupo_edad, sum)      
+n = tapply(d$lector, d$grupo_edad, length)   
+
+p = x / n
+grupo  = names(x)
+n      = as.numeric(n)
+n_p    = as.numeric(n * p)    
+nq    = as.numeric(n * (1 - p))  
+cumple = (n * p >= 10) & (n * (1 - p) >= 10)
+cumple
+
+
+alfa = 0.04
+
+
+prueba = prop.test(x, n, correct = FALSE, conf.level = 1 - alfa)
+prueba
+qnorm(1 - 0.04 / 2)
+sqrt(54.302)
+```
+segunda prueba de hipotesis
+```{r}
+unique(datos$p3_5)
+
+
+datos$internet <- ifelse(datos$p3_5 == "Sí", 1, 0)
+
+
+niv <- levels(datos$grupo_edad)
+d <- subset(datos, grupo_edad == niv[1])
+
+
+x <- tapply(d$internet, d$anio_encuesta, sum)
+n <- tapply(d$internet, d$anio_encuesta, length)
+
+
+p = x / n
+grupo  = names(x)
+n      = as.numeric(n)
+n_p    = as.numeric(n * p)    
+nq    = as.numeric(n * (1 - p))  
+cumple = (n * p >= 10) & (n * (1 - p) >= 10)
+cumple
+
+
+alfa <- 0.04
+
+prueba <- prop.test(x, n, correct = FALSE, conf.level = 1 - alfa)
+prueba
+sqrt(2.5568)
+```
+
+Tercera prueba de hipotesis
+```{r}
+
+alfa = 0.04
+
+niv   =levels(datos$grupo_edad)
+niv_e = levels(datos$escolaridad)
+
+
+datos$lector = ifelse(datos$perslec == "Lector", 1, 0)
+
+
+d = subset(datos, escolaridad == niv_e[3] & grupo_edad %in% niv[c(1, 4)])
+d$grupo_edad = droplevels(d$grupo_edad)
+
+
+x = tapply(d$lector, d$grupo_edad, sum)
+n = tapply(d$lector, d$grupo_edad, length)
+x
+
+p = x / n
+grupo  = names(x)
+n      = as.numeric(n)
+n_p    = as.numeric(n * p)    
+nq    = as.numeric(n * (1 - p))  
+cumple = (n * p >= 10) & (n * (1 - p) >= 10)
+cumple
+
+prueba = prop.test(x, n, correct = FALSE, conf.level = 1 - alfa)
+prueba
+sqrt(9.6146)
+```
+

@@ -1,0 +1,98 @@
+---
+title: "Etapa_1"
+output:
+  pdf_document: default
+  html_document: default
+date: "2026-09-25"
+---
+
+```{r, results='hide'} 
+setwd("C:/Users/dg667/OneDrive/Documents/ArchivosR")
+#Aqui usted tiene que poner el directorio donde contiene los archivos
+# de los años y diccionarios respectivamente
+
+A1 = read.csv("Datos_molec_2023-1.csv")
+A2 = read.csv("Datos_molec_2024-1.csv")
+
+Dicc19 = read.csv("Diccionario_molec_2023-1.csv")
+Dicc2 = read.csv("Diccionario_molec_2024-1.csv")
+
+
+
+
+
+```
+
+
+
+```{r, results='hide'}
+#
+selec1 = A1[c("edad","p3_5","p4","perslec","nivel","l_format")]
+selec2 = A2[c("edad","p3_5","p4","perslec","nivel","l_format")]
+
+
+
+#juntar los 2 años
+juntos = data.frame(rbind(selec1,selec2))
+
+
+#ver cuantos 0 hay
+table(juntos$p4)
+prop.table(table(juntos$p4))
+#hay muchos ceros, pero esto no es un problema
+#la pregunta es cuantos libros has leido en el ultimo año
+#esto nos da un "pre" a nuestro analísis, significa
+#que la mayoría de personas no han leíso ni siquiera un libro
+
+table(juntos$nivel)
+prop.table(table(juntos$nivel))
+#casi no hay ceros, eso significa que la mayoría si llego a
+#mínimo un nivel de estudio.
+
+table(juntos$p3_5)
+prop.table(table(juntos$p3_5))
+#hay algunas filas que dicen 0, el cual no es un valor permitido
+#en esta pregunta (solo 1 y 2) por ende, tendremos que borrar esas filas
+
+juntos <- juntos[juntos$p3_5 != 0, ]
+
+#ya han sido reemplazados
+
+table(juntos$perslec)
+prop.table(table(juntos$perslec))
+#todo bien aquí 
+
+table(juntos$l_format)
+prop.table(table(juntos$l_format))
+
+
+table(juntos$edad)
+prop.table(table(juntos$edad))
+#todo bien
+
+#limpieza de datos
+limp = na.omit(juntos) #Borrar si fila si hay algun valor faltante
+
+for (i in c(1:6)) {
+  x = sum(is.na(limp[ ,i])) / length(limp[ ,i])
+  cat("col ",i, " ","\n")
+  cat(x, " ","\n")
+} #Porcentaje de datos faltantes en cada variable
+#Todas las columnas dan 0, por ende no hay datos faltantes
+
+#Nuestro numero de filas se redujo un poco,
+#pero esto nos asegura datos limpios y de calidad, para un mejor estudio
+#y un análisis efectivo
+
+```
+```{r, results='hide'}
+#finalmente crear un nuevo dataframe
+write.csv(limp,"datos_limpios",row.names = FALSE)
+
+dlimp = read.csv("datos_limpios")
+View(dlimp)
+
+
+```
+
+

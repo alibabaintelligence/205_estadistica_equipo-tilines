@@ -1,0 +1,399 @@
+---
+title: "Etapa 2: Comprensión y preparación de los datos"
+author: "Equipo 6 – Grupo 205"
+date: "8 de octubre de 2026"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE,
+                      fig.width = 7, fig.height = 4)
+# Guardar este Rmd en la misma carpeta que los CSV de MOLEC
+# (o descomentar la línea de abajo y poner la ruta de la carpeta)
+# setwd("C:/Users/dg667/OneDrive/Documents/ArchivosR")
+library(moments)   # para sesgo y curtosis: install.packages("moments") si no la tienen
+
+# colores que usamos en todas las gráficas
+col_anio = c("#2a78d6", "#eb6834")            # 2023 azul, 2024 naranja
+col_formato = c("#2a78d6", "#eb6834", "#1baf7a") # digital, impreso, ambos
+```
+
+# Pregunta de investigación (Etapa 1)
+
+¿Existe relación entre la edad de la población mexicana adulta y sus hábitos de lectura,
+tanto en la cantidad que lee como en el tipo de materiales y formatos que utiliza,
+y es igual esa relación en 2023 y en 2024?
+
+# 1. Calidad y preparación de los datos
+
+## 1.1 Lectura de las bases
+
+```{r}
+M23 = read.csv("Datos_molec_2023-1.csv", encoding = "latin1")
+M24 = read.csv("Datos_molec_2024-1.csv", encoding = "latin1")
+Dicc23 = read.csv("Diccionario_molec_2023-1.csv", encoding = "UTF-8")
+Dicc24 = read.csv("Diccionario_molec_2024-1.csv", encoding = "UTF-8")
+
+dim(M23)
+dim(M24)
+identical(names(M23), names(M24))   # mismas columnas en los dos años
+table(M23$periodo); table(M24$periodo)   # 223 = feb 2023, 224 = feb 2024
+```
+
+Cada registro es una persona de 18 años o más (el informante elegido de cada hogar).
+
+## 1.2 ¿Las variables significan lo mismo en los dos años?
+
+Comparamos lo que dicen los dos diccionarios para nuestras variables (nemónico, catálogo y rango).
+
+```{r}
+vars = c("edad", "p4", "nivel", "perslec", "p3_5", "l_format", "sexo", "p26", "factor")
+# sexo y p26 se agregaron por la retroalimentación de la Etapa 1
+
+d23 = Dicc23[trimws(tolower(Dicc23[[3]])) %in% vars, c(3, 4, 5)]
+d24 = Dicc24[trimws(tolower(Dicc24[[4]])) %in% vars, c(4, 5, 6)]
+names(d23) = c("variable", "catalogo_2023", "rango_2023")
+names(d24) = c("variable", "catalogo_2024", "rango_2024")
+d23$variable = trimws(tolower(d23$variable)); d24$variable = trimws(tolower(d24$variable))
+merge(d23, d24, by = "variable")
+```
+
+Los catálogos son los mismos. Solo cambian los rangos de p4 (hasta 99 libros en 2023 y 70 en 2024),
+de p26 (hasta 999 minutos en 2023 y 360 en 2024) y del factor, que no afectan la comparación.
+
+## 1.3 Valores faltantes, códigos especiales y rangos
+
+```{r}
+# NA en las variables seleccionadas
+sapply(M23[vars], function(x) sum(is.na(x)))
+sapply(M24[vars], function(x) sum(is.na(x)))
+
+# ceros ("blanco por pase") y código 99
+sapply(M23[vars], function(x) sum(x == 0))
+sapply(M24[vars], function(x) sum(x == 0))
+sum(M23$nivel == 99); sum(M24$nivel == 99)
+
+# ¿de dónde salen los ceros? de quien no sabe leer (p1 = 2) y de quien no leyó libros (p3_1 = 2)
+table(M23$p1, M23$perslec)
+table(M23$p3_1, M23$l_format)
+all((M23$p4 == 0) == (M23$l_format == 0)); all((M24$p4 == 0) == (M24$l_format == 0))
+
+# los 0 de p26 (minutos de lectura) son las personas que no son lectoras
+table(M23$p26 == 0, M23$perslec)
+table(M24$p26 == 0, M24$perslec)
+
+# rangos contra el diccionario
+sapply(M23[vars], range)
+sapply(M24[vars], range)
+sum(M23$edad %in% c(98, 99)); sum(M24$edad %in% c(98, 99))
+sum(M23$p26 == 999); sum(M24$p26 == 999)
+table(M23$sexo); table(M24$sexo)
+```
+
+No hay NA en ninguna de las variables. Los ceros no son errores: en p3_5 y perslec son las
+personas que no saben leer (no contestan el cuestionario) y en p4 y l_format son las
+personas que no leyeron libros en el año. En p26 el 0 son las personas no lectoras, a quienes
+no se les pregunta cuánto tiempo leen. Sexo no tiene códigos especiales. No hay edades con código 98 o 99 ni valores fuera
+de rango.
+
+## 1.4 Registros duplicados
+
+```{r}
+sum(duplicated(M23)); sum(duplicated(M24))   # filas idénticas
+
+id = c("entidad", "cd", "folio", "control", "viv_sel", "num_hog", "n_ren_el")
+sum(duplicated(M23[id])); sum(duplicated(M24[id]))   # misma persona repetida
+```
+
+No hay duplicados.
+
+## 1.5 Preparación
+
+Decisiones:
+
+1. Quitamos a quien no sabe leer (p1 = 2): no contestó nada sobre lectura.
+2. nivel = 99 (no especificado) pasa a NA.
+3. l_format = 0 pasa a NA porque significa "no aplica" (no leyó libros), y lo mismo p26 = 0
+   (no es lector).
+4. p4 = 0 lo dejamos: quiere decir que la persona leyó 0 libros. Para describir cuántos libros
+   leen los que sí leen usamos solo p4 > 0.
+5. Creamos los grupos de edad y agrupamos la escolaridad en tres niveles.
+
+```{r}
+sel23 = M23[c(vars, "p1")]; sel23$anio_encuesta = 2023
+sel24 = M24[c(vars, "p1")]; sel24$anio_encuesta = 2024
+juntos = rbind(sel23, sel24)
+nrow(juntos)
+
+datos = subset(juntos, p1 == 1)
+datos$p1 = NULL
+nrow(datos)
+table(datos$anio_encuesta)
+
+datos$nivel[datos$nivel == 99] = NA
+datos$l_format[datos$l_format == 0] = NA
+datos$p26[datos$p26 == 0] = NA
+
+datos$grupo_edad = cut(datos$edad, breaks = c(17, 29, 44, 59, Inf),
+                       labels = c("18-29", "30-44", "45-59", "60+"))
+
+# 0-3 = ninguno a secundaria; 4-6 = prepa, normal o carrera técnica; 7-9 = licenciatura o posgrado
+datos$escolaridad = cut(datos$nivel, breaks = c(-1, 3, 6, 9),
+                        labels = c("Básica o menos", "Media superior o técnica", "Superior"))
+
+datos$perslec  = factor(datos$perslec,  levels = 1:2, labels = c("Lector", "No lector"))
+datos$p3_5     = factor(datos$p3_5,     levels = 1:2, labels = c("Sí", "No"))
+datos$l_format = factor(datos$l_format, levels = 1:3, labels = c("Digital", "Impreso", "Ambos"))
+datos$sexo     = factor(datos$sexo,     levels = 1:2, labels = c("Hombre", "Mujer"))
+datos$anio_encuesta = factor(datos$anio_encuesta)
+
+# faltantes después de preparar
+falt = sapply(datos, function(x) sum(is.na(x)))
+data.frame(faltantes = falt, porcentaje = round(falt / nrow(datos) * 100, 1))
+
+str(datos)
+write.csv(datos, "DatosEquipo6_Etapa2.csv", row.names = FALSE)
+```
+
+Base final: `r nrow(datos)` personas y `r ncol(datos)` columnas.
+
+Estimación ponderada del porcentaje de lectores (para comparar con lo que publica INEGI):
+
+```{r}
+pond = tapply(seq_len(nrow(datos)), datos$anio_encuesta, function(i)
+  sum(datos$factor[i] * (datos$perslec[i] == "Lector")) / sum(datos$factor[i]) * 100)
+round(pond, 1)
+```
+
+# 2. Descripción individual de las variables
+
+```{r}
+# función para sacar todas las medidas de una variable numérica
+medidas = function(x) {
+  c(n = length(x), media = mean(x), mediana = median(x),
+    rango_medio = (min(x) + max(x)) / 2, de = sd(x),
+    cv = sd(x) / mean(x) * 100, min = min(x), Q1 = unname(quantile(x, 0.25)),
+    Q3 = unname(quantile(x, 0.75)), max = max(x),
+    sesgo = skewness(x), curtosis = kurtosis(x))
+}
+libros = datos$p4[datos$p4 > 0]   # solo quienes leyeron al menos un libro
+minutos = na.omit(datos$p26)        # solo lectores
+round(rbind(edad = medidas(datos$edad), libros = medidas(libros),
+            minutos = medidas(minutos)), 2)
+
+table(datos$grupo_edad)   # tamaño de cada grupo de edad
+sum(datos$edad > 85)      # personas de más de 85 años
+
+# valores atípicos de libros (regla de 1.5 * RIC)
+lim_sup = quantile(libros, 0.75) + 1.5 * IQR(libros)
+lim_sup
+sum(libros > lim_sup); round(mean(libros > lim_sup) * 100, 1)
+sort(libros[libros > 20])
+sum(libros > 30)   # quedan fuera del histograma
+
+# atípicos de minutos y los valores más repetidos (la gente redondea)
+lim_min = quantile(minutos, 0.75) + 1.5 * IQR(minutos)
+lim_min
+sum(minutos > lim_min); round(mean(minutos > lim_min) * 100, 1)
+sort(table(minutos), decreasing = TRUE)[1:5]
+sum(minutos > 180)   # quedan fuera del histograma
+```
+
+```{r fig1, fig.height=2.8}
+par(mfrow = c(1, 3))
+hist(datos$edad, breaks = seq(15, 100, 5), col = "#2a78d6", border = "white",
+     main = "Edad", xlab = "Años", ylab = "Personas")
+hist(libros, breaks = seq(0.5, 80.5, 1), xlim = c(0, 30), col = "#2a78d6", border = "white",
+     main = "Libros leídos en el año", xlab = "Libros (eje cortado en 30)", ylab = "Personas")
+hist(minutos, breaks = seq(0, 480, 10), xlim = c(0, 180), col = "#2a78d6", border = "white",
+     main = "Minutos continuos de lectura", xlab = "Minutos (eje cortado en 180)", ylab = "Personas")
+par(mfrow = c(1, 1))
+```
+
+```{r fig_cajas, fig.height=3}
+par(mfrow = c(1, 3))
+boxplot(datos$edad, horizontal = TRUE, col = "#cde2fb", main = "Edad", xlab = "Años")
+boxplot(libros, horizontal = TRUE, col = "#cde2fb", main = "Libros leídos", xlab = "Libros")
+boxplot(minutos, horizontal = TRUE, col = "#cde2fb", main = "Minutos de lectura", xlab = "Minutos")
+par(mfrow = c(1, 1))
+```
+
+Variables categóricas:
+
+```{r}
+frec = function(x) {
+  t = table(x)
+  data.frame(categoria = names(t), frecuencia = as.vector(t),
+             porcentaje = round(as.vector(prop.table(t)) * 100, 1),
+             acumulado = round(cumsum(as.vector(prop.table(t))) * 100, 1))
+}
+frec(datos$nivel)          # ordinal, se respeta el orden 0 a 9
+frec(datos$escolaridad)
+frec(datos$perslec)
+frec(datos$p3_5)
+frec(datos$l_format)
+frec(datos$sexo)
+
+# mediana de la variable ordinal nivel
+median(datos$nivel, na.rm = TRUE)
+```
+
+```{r fig_categoricas, fig.height=5.5}
+par(mfrow = c(2, 3), mar = c(4, 4, 3, 1))
+barplot(table(datos$nivel), col = "#2a78d6", main = "Nivel de instrucción",
+        xlab = "Código (0 = ninguno ... 9 = doctorado)", ylab = "Personas")
+barplot(prop.table(table(datos$perslec)) * 100, col = "#2a78d6", main = "Condición de lector", ylab = "%")
+barplot(prop.table(table(datos$p3_5)) * 100, col = "#2a78d6", main = "Lee internet, foros o blogs", ylab = "%")
+barplot(prop.table(table(datos$l_format)) * 100, col = "#2a78d6", main = "Formato del libro", ylab = "%")
+barplot(prop.table(table(datos$sexo)) * 100, col = "#2a78d6", main = "Sexo", ylab = "%")
+par(mfrow = c(1, 1))
+```
+
+# 3. Comparación entre variables
+
+## 3.1 Condición de lector por grupo de edad y año
+
+Los porcentajes se calculan dentro de cada grupo de edad (denominador = personas de ese grupo).
+
+```{r}
+pct_grupo = function(var, nivel_si) {
+  t = table(datos$grupo_edad, datos$anio_encuesta, datos[[var]])
+  round(t[, , nivel_si] / apply(t, c(1, 2), sum) * 100, 1)
+}
+lect = pct_grupo("perslec", "Lector")
+lect
+lect[, "2024"] - lect[, "2023"]   # cambio en puntos porcentuales
+lect["18-29", ] - lect["60+", ]   # brecha entre jóvenes y mayores cada año
+
+# los dos años juntos
+round(prop.table(table(datos$grupo_edad, datos$perslec), 1) * 100, 1)
+
+table(datos$grupo_edad, datos$anio_encuesta)   # n de cada grupo
+```
+
+## 3.2 Lectura en internet, foros o blogs por grupo de edad y año
+
+```{r}
+inter = pct_grupo("p3_5", "Sí")
+inter
+inter[, "2024"] - inter[, "2023"]
+inter["18-29", ] - inter["60+", ]
+```
+
+```{r fig2, fig.height=3.2}
+par(mfrow = c(1, 2), mar = c(4, 4, 3, 1))
+b = barplot(t(lect), beside = TRUE, col = col_anio, ylim = c(0, 100),
+            main = "Personas lectoras", ylab = "% del grupo de edad", xlab = "Grupo de edad")
+text(b, t(lect) + 4, round(t(lect)), cex = 0.7)
+legend("topright", legend = c("2023", "2024"), fill = col_anio, bty = "n", cex = 0.8)
+b = barplot(t(inter), beside = TRUE, col = col_anio, ylim = c(0, 100),
+            main = "Leen internet, foros o blogs", ylab = "% del grupo de edad", xlab = "Grupo de edad")
+text(b, t(inter) + 4, round(t(inter)), cex = 0.7)
+legend("topright", legend = c("2023", "2024"), fill = col_anio, bty = "n", cex = 0.8)
+par(mfrow = c(1, 1))
+```
+
+## 3.3 Libros leídos por grupo de edad y año (solo quienes leyeron al menos un libro)
+
+```{r}
+lib = subset(datos, p4 > 0)
+resumen_libros = aggregate(p4 ~ grupo_edad + anio_encuesta, data = lib,
+  FUN = function(x) round(c(n = length(x), media = mean(x), mediana = median(x),
+                             de = sd(x), Q1 = unname(quantile(x, .25)),
+                             Q3 = unname(quantile(x, .75)), max = max(x)), 1))
+resumen_libros = do.call(data.frame, resumen_libros)
+resumen_libros
+
+# por grupo de edad juntando los dos años
+aggregate(p4 ~ grupo_edad, data = lib, FUN = function(x) round(c(n = length(x),
+  media = mean(x), mediana = median(x), RIC = IQR(x), cv = sd(x) / mean(x) * 100), 1))
+
+# ¿por qué bajó tanto la media del grupo 30-44 entre años? revisamos los valores altos
+x = lib$p4[lib$grupo_edad == "30-44" & lib$anio_encuesta == "2023"]
+sort(x[x > 20])
+mean(x); mean(x[x <= 20])   # media 2023 sin los casos de más de 20 libros
+
+# porcentaje que leyó al menos un libro en cada grupo
+round(prop.table(table(datos$grupo_edad, datos$p4 > 0), 1) * 100, 1)
+```
+
+```{r fig3, fig.height=3.2}
+boxplot(p4 ~ anio_encuesta + grupo_edad, data = lib, col = col_anio,
+        ylim = c(0, 25), sep = " / ", las = 1, xaxt = "n",
+        main = "Libros leídos en el año por grupo de edad",
+        ylab = "Libros (escala cortada en 25)", xlab = "Grupo de edad")
+axis(1, at = c(1.5, 3.5, 5.5, 7.5), labels = levels(lib$grupo_edad))
+abline(v = c(2.5, 4.5, 6.5), lty = 3, col = "grey70")
+legend("topright", legend = c("2023", "2024"), fill = col_anio, bty = "n", cex = 0.8)
+sum(lib$p4 > 25)   # puntos que quedan fuera de la gráfica
+```
+
+Relación entre edad y número de libros (gráfico de dispersión):
+
+```{r fig_dispersion, fig.height=3.8}
+plot(jitter(lib$edad), jitter(lib$p4), pch = 16, col = adjustcolor("#2a78d6", 0.35),
+     xlab = "Edad (años)", ylab = "Libros leídos", main = "Edad vs. libros leídos")
+cor(lib$edad, lib$p4)
+cor(lib$edad, lib$p4, method = "spearman")
+```
+
+## 3.4 Formato del libro por grupo de edad
+
+```{r}
+form = prop.table(table(lib$grupo_edad, lib$l_format), 1) * 100
+round(form, 1)
+round(prop.table(table(lib$grupo_edad, lib$l_format, lib$anio_encuesta), c(1, 3)) * 100, 1)
+```
+
+```{r fig4, fig.height=3}
+par(mar = c(4, 4, 3, 7), xpd = TRUE)
+barplot(t(form), col = col_formato, border = "white",
+        main = "Formato de los libros leídos por grupo de edad",
+        ylab = "% de lectores de libros", xlab = "Grupo de edad")
+legend("topright", inset = c(-0.22, 0), legend = colnames(form), fill = col_formato, bty = "n", cex = 0.8)
+par(mar = c(5, 4, 4, 2), xpd = FALSE)
+```
+
+## 3.5 ¿Se mantiene la diferencia por edad dentro de cada nivel de escolaridad?
+
+```{r}
+esc_lect = round(prop.table(table(datos$grupo_edad, datos$escolaridad, datos$perslec), c(1, 2))[, , "Lector"] * 100, 1)
+esc_lect
+table(datos$grupo_edad, datos$escolaridad)   # n de cada celda
+
+esc_int = round(prop.table(table(datos$grupo_edad, datos$escolaridad, datos$p3_5), c(1, 2))[, , "Sí"] * 100, 1)
+esc_int
+
+# composición por escolaridad de cada grupo de edad
+round(prop.table(table(datos$grupo_edad, datos$escolaridad), 1) * 100, 1)
+```
+
+## 3.6 Minutos continuos de lectura por grupo de edad (solo lectores)
+
+```{r}
+lec = subset(datos, !is.na(p26))
+resumen_min = aggregate(p26 ~ grupo_edad + anio_encuesta, data = lec,
+  FUN = function(x) round(c(n = length(x), media = mean(x), mediana = median(x),
+                             Q1 = unname(quantile(x, .25)), Q3 = unname(quantile(x, .75))), 1))
+do.call(data.frame, resumen_min)
+
+aggregate(p26 ~ grupo_edad, data = lec, FUN = function(x) round(c(n = length(x),
+  media = mean(x), mediana = median(x), RIC = IQR(x)), 1))
+
+cor(lec$edad, lec$p26)
+cor(lec$edad, lec$p26, method = "spearman")
+```
+
+## 3.7 Condición de lector por sexo
+
+```{r}
+# por sexo y año
+round(prop.table(table(datos$sexo, datos$anio_encuesta, datos$perslec), c(1, 2))[, , "Lector"] * 100, 1)
+# por sexo, los dos años juntos
+round(prop.table(table(datos$sexo, datos$perslec), 1) * 100, 1)
+# por sexo y grupo de edad
+round(prop.table(table(datos$grupo_edad, datos$sexo, datos$perslec), c(1, 2))[, , "Lector"] * 100, 1)
+table(datos$grupo_edad, datos$sexo)   # n de cada celda
+# lectura en internet por sexo y año
+round(prop.table(table(datos$sexo, datos$anio_encuesta, datos$p3_5), c(1, 2))[, , "Sí"] * 100, 1)
+```
